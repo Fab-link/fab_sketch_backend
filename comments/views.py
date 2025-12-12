@@ -1,6 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from django.shortcuts import get_object_or_404
 from .models import Comment
 from .serializers import CommentSerializer, CommentCreateSerializer
 from designs.models import Design
@@ -8,25 +9,39 @@ from designs.models import Design
 class CommentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]
     
+    def get_queryset(self):
+        # Handle both URL parameter and query parameter
+        design_id = getattr(self, 'design_id', None) or self.request.query_params.get('design_id')
+        if design_id:
+            return Comment.objects.filter(design_id=design_id).order_by('-created_at')
+        return Comment.objects.all().order_by('-created_at')
+    
     def get_serializer_class(self):
         if self.action == 'create':
             return CommentCreateSerializer
         return CommentSerializer
     
-    def get_queryset(self):
-        design_id = self.request.query_params.get('design_id')
+    def list(self, request, design_id=None):
+        """Get comments for a specific design"""
         if design_id:
-            return Comment.objects.filter(design_id=design_id).select_related('user')
-        return Comment.objects.select_related('user')
+            self.design_id = design_id
+            design = get_object_or_404(Design, id=design_id)
+        
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
     
-    def perform_create(self, serializer):
-        design_id = self.request.data.get('design_id')
-        try:
-            design = Design.objects.get(id=design_id)
-            serializer.save(user=self.request.user, design=design)
-        except Design.DoesNotExist:
-            return Response({'error': 'Design not found'}, 
-                          status=status.HTTP_404_NOT_FOUND)
+    def create(self, request, design_id=None):
+        """Create comment for a specific design"""
+        if design_id:
+            design = get_object_or_404(Design, id=design_id)
+            # Add design to request data
+            request.data['design'] = design.id
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(user=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
     
     def update(self, request, *args, **kwargs):
         comment = self.get_object()

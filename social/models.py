@@ -1,27 +1,33 @@
 from django.db import models
 from django.contrib.auth import get_user_model
-from designs.models import Design
 
 User = get_user_model()
 
 class Like(models.Model):
-    design = models.ForeignKey(Design, on_delete=models.CASCADE, related_name='likes')
+    design = models.ForeignKey('designs.Design', on_delete=models.CASCADE, related_name='likes')
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='likes')
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         unique_together = ('design', 'user')
+        indexes = [
+            models.Index(fields=['design', 'user']),
+        ]
     
     def __str__(self):
         return f"{self.user.nickname} likes {self.design.title}"
 
 class Bookmark(models.Model):
-    design = models.ForeignKey(Design, on_delete=models.CASCADE, related_name='bookmarks')
+    design = models.ForeignKey('designs.Design', on_delete=models.CASCADE, related_name='bookmarks')
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='bookmarks')
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
         unique_together = ('design', 'user')
+        indexes = [
+            models.Index(fields=['user_id']),
+            models.Index(fields=['-created_at']),
+        ]
     
     def __str__(self):
         return f"{self.user.nickname} bookmarked {self.design.title}"
@@ -36,8 +42,12 @@ class Follow(models.Model):
         constraints = [
             models.CheckConstraint(
                 check=~models.Q(follower=models.F('followee')),
-                name='prevent_self_follow'
+                name='no_self_follow'
             )
+        ]
+        indexes = [
+            models.Index(fields=['follower_id']),
+            models.Index(fields=['followee_id']),
         ]
     
     def __str__(self):
