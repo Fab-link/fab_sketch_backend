@@ -1,212 +1,263 @@
 # FabSketch Backend
 
-Django REST API for FabSketch 0.1.0
+Django REST API backend for FabSketch mobile application.
 
-## 🌐 Live Deployment
+## 🏗️ Architecture
 
-**Production URL**: http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com
+```
+Flutter App → ALB → EC2 (Django) → RDS PostgreSQL
+                 ↘ Lambda (AI Image Generation)
+```
 
-### API Endpoints
-- **API Root**: http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/api/
-- **Health Check**: http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/health/
-- **Designs**: http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/api/designs/
-- **Comments**: http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/api/comments/
-- **Users**: http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/api/users/
+## 🚀 Deployment
 
-## 🚀 Local Development
+### Current Infrastructure
 
-### Prerequisites
-- **Python 3.11+**: [Download here](https://www.python.org/downloads/)
-- **Git**: For cloning the repository
+- **EC2 Instance**: `i-0241eb14f5097a359` (Private IP: 10.0.10.18)
+- **Load Balancer**: `fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com`
+- **Database**: `fab-sketch-db.chyooau22dfx.ap-northeast-2.rds.amazonaws.com`
+- **Storage**: S3 bucket `fab-sketch-media-xp8zu198`
 
-### Initial Setup (First Time)
+### Code Changes → Deployment Workflow
 
-1. **Clone the repository**
+**📋 For detailed deployment instructions, see [../DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md)**
+
+**After making backend code changes:**
+
+```bash
+# 1. Commit your changes
+git add .
+git commit -m "Fix: your change description"
+git push origin main
+
+# 2. Deploy to production (one command!)
+cd fab_sketch_backend
+./deploy/deploy.sh
+
+# 3. Verify deployment
+curl http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/health/
+# Expected: {"status": "healthy"}
+```
+
+### Quick Deploy
+
+```bash
+# Deploy latest code to EC2
+cd fab_sketch_backend
+./deploy/deploy.sh
+
+# Or specify EC2 IP
+./deploy/deploy.sh 10.0.10.18
+```
+
+### Manual Deployment Steps
+
+1. **Prepare deployment package**
+   ```bash
+   cd fab_sketch_backend
+   tar --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' --exclude='venv' \
+       -czf fabsketch_backend.tar.gz .
+   ```
+
+2. **Upload to EC2**
+   ```bash
+   scp -i ~/.ssh/fabsketch-key fabsketch_backend.tar.gz ec2-user@10.0.10.18:/tmp/
+   ```
+
+3. **Deploy on EC2**
+   ```bash
+   ssh -i ~/.ssh/fabsketch-key ec2-user@10.0.10.18
+   
+   # Stop existing service
+   sudo pkill -f gunicorn
+   
+   # Extract new code
+   sudo rm -rf /opt/fabsketch/*
+   cd /opt/fabsketch
+   sudo tar -xzf /tmp/fabsketch_backend.tar.gz
+   sudo chown -R ec2-user:ec2-user /opt/fabsketch
+   
+   # Setup environment
+   python3.11 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   
+   # Run migrations
+   export DJANGO_SETTINGS_MODULE=deploy.ec2_settings
+   python manage.py migrate
+   python manage.py collectstatic --noinput
+   
+   # Start service
+   gunicorn --bind 0.0.0.0:8000 \
+            --workers 2 \
+            --daemon \
+            --env DJANGO_SETTINGS_MODULE=deploy.ec2_settings \
+            fab_sketch_project.wsgi:application
+   ```
+
+4. **Verify deployment**
+   ```bash
+   curl http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/health/
+   ```
+
+## 🔧 Development
+
+### Local Setup
+
+1. **Clone repository**
    ```bash
    git clone <repository-url>
-   cd FabSketch/fab_sketch_backend
+   cd fab_sketch_backend
    ```
 
-2. **Create Python Virtual Environment**
+2. **Create virtual environment**
    ```bash
-   # Create virtual environment
-   python3 -m venv venv
-   
-   # Activate it
-   source venv/bin/activate  # macOS/Linux
-   # OR
-   venv\Scripts\activate     # Windows
-   
-   # Verify activation (should show venv path)
-   which python
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Install Dependencies**
+3. **Install dependencies**
    ```bash
-   pip install --upgrade pip
    pip install -r requirements.txt
    ```
 
-4. **Setup Database**
+4. **Setup environment variables**
    ```bash
-   # Create SQLite database and tables
-   python manage.py migrate
-   
-   # Create admin user (follow prompts)
-   python manage.py createsuperuser
-   
-   # Create test data (optional but recommended)
-   python manage.py create_test_data
+   cp .env.example .env
+   # Edit .env with your local settings
    ```
 
-5. **Start Development Server**
+5. **Run migrations**
+   ```bash
+   python manage.py migrate
+   ```
+
+6. **Start development server**
    ```bash
    python manage.py runserver
    ```
 
-### Daily Development
-
-```bash
-# 1. Activate Python environment
-source venv/bin/activate  # macOS/Linux
-# venv\Scripts\activate   # Windows
-
-# 2. Start Django server
-python manage.py runserver
-```
-
-### Local Access Points
-- **API Root**: http://localhost:8000/api/
-- **Django Admin**: http://localhost:8000/admin/
-- **Health Check**: http://localhost:8000/health/
-
-### Stopping Services
-```bash
-# Stop Django server: Ctrl+C
-# Deactivate Python environment
-deactivate
-```
-
-## 🗄️ Database Information
-
-**Local Development**: SQLite database (`db.sqlite3`)
-**Production**: SQLite in ECS container (ephemeral storage)
-
-⚠️ **Note**: Production data is not persistent across container restarts
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-**1. Docker not running**
-```
-Error: Cannot connect to Docker daemon
-```
-**Solution**: Start Docker Desktop application
-
-**2. Port 5432 already in use**
-```
-Error: port is already allocated
-```
-**Solution**: Stop local PostgreSQL or change port in docker-compose.yml
-
-**3. Python virtual environment issues**
-```bash
-# Remove and recreate venv
-rm -rf venv
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-**4. Database connection errors**
-```bash
-# Check if database container is running
-docker-compose ps
-
-# Restart database
-docker-compose restart db
-```
-
 ### Environment Variables
 
-Create `.env` file if needed (already exists):
+Create `.env` file for local development:
+
 ```env
+SECRET_KEY=your-secret-key
 DEBUG=True
-SECRET_KEY=django-insecure-demo-key-change-in-production
-DB_NAME=fab_sketch_db
-DB_USER=fab_sketch_user
-DB_PASSWORD=fab_sketch_pass
+DB_NAME=fabsketch_local
+DB_USER=postgres
+DB_PASSWORD=password
 DB_HOST=localhost
 DB_PORT=5432
 ```
 
-## 📋 Development Commands
+## 📱 API Endpoints
 
+### Base URL
+- **Production**: `http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/api/`
+- **Local**: `http://localhost:8000/api/`
+
+### Health Check
+- `GET /health/` - Service health status
+
+### Authentication
+- `POST /api/auth/login/` - User login
+- `POST /api/auth/register/` - User registration
+- `POST /api/auth/logout/` - User logout
+
+### Users
+- `GET /api/users/profile/` - Get user profile
+- `PUT /api/users/profile/` - Update user profile
+
+### Designs
+- `GET /api/designs/` - List designs (feed)
+- `POST /api/designs/` - Create new design
+- `GET /api/designs/{id}/` - Get design details
+
+### Comments
+- `GET /api/comments/?design_id={id}` - Get design comments
+- `POST /api/comments/` - Create comment
+- `PUT /api/comments/{id}/` - Update comment
+- `DELETE /api/comments/{id}/` - Delete comment
+
+### Social
+- `POST /api/social/like/` - Toggle like
+- `POST /api/social/bookmark/` - Toggle bookmark
+- `POST /api/social/follow/` - Toggle follow
+
+## 🔍 Monitoring & Logs
+
+### Check service status
 ```bash
-# Create new Django app
-python manage.py startapp app_name
-
-# Create database migrations
-python manage.py makemigrations
-
-# Apply migrations
-python manage.py migrate
-
-# Create superuser
-python manage.py createsuperuser
-
-# Run tests
-python manage.py test
-
-# Collect static files
-python manage.py collectstatic
-
-# Django shell
-python manage.py shell
+ssh -i ~/.ssh/fabsketch-key ec2-user@10.0.10.18
+ps aux | grep gunicorn
 ```
 
-## 🏗️ Project Structure
-
-```
-fab_sketch_backend/
-├── fab_sketch_project/     # Django project settings
-├── users/                  # User management app
-├── designs/               # Design management app
-├── comments/              # Comment system app
-├── social/                # Like/Bookmark/Follow app
-├── venv/                  # Python virtual environment
-├── docker-compose.yml     # Database container
-├── requirements.txt       # Python dependencies
-├── .env                   # Environment variables
-└── manage.py             # Django management script
-```
-
-## 🤝 Team Development
-
-### Before Starting Work
+### View logs
 ```bash
-git pull origin main
-docker-compose up -d
+# Application logs
+tail -f /opt/fabsketch/error.log
+tail -f /opt/fabsketch/access.log
+
+# System logs
+sudo journalctl -u fabsketch -f
+```
+
+### Health check
+```bash
+curl http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/health/
+```
+
+## 🛠️ Troubleshooting
+
+### Service not responding
+```bash
+# Restart Gunicorn
+ssh -i ~/.ssh/fabsketch-key ec2-user@10.0.10.18
+sudo pkill -f gunicorn
+cd /opt/fabsketch
 source venv/bin/activate
-python manage.py migrate  # Apply any new migrations
+gunicorn --bind 0.0.0.0:8000 --daemon fab_sketch_project.wsgi:application
 ```
 
-### After Making Changes
+### Database connection issues
 ```bash
-# If you modified models
-python manage.py makemigrations
-python manage.py migrate
-
-# Commit your changes
-git add .
-git commit -m "Your commit message"
-git push origin your-branch
+# Test database connection
+python manage.py dbshell
 ```
 
-## 📞 Need Help?
+### Static files not loading
+```bash
+# Recollect static files
+python manage.py collectstatic --noinput
+```
 
-1. Check this README first
-2. Look at Django/Docker documentation
-3. Ask team members
-4. Create an issue in the repository
+## 📋 Deployment Checklist
+
+Before deploying to production:
+
+- [ ] Update `requirements.txt` with new dependencies
+- [ ] Run tests locally: `python manage.py test`
+- [ ] Check migrations: `python manage.py makemigrations --dry-run`
+- [ ] Update environment variables if needed
+- [ ] Test API endpoints locally
+- [ ] Backup database if schema changes
+- [ ] Deploy using `./deploy/deploy.sh`
+- [ ] Verify health check passes
+- [ ] Test critical user flows
+
+## 🔐 Security Notes
+
+- EC2 instance is in private subnet (no direct internet access)
+- Access only through ALB
+- Database credentials stored in environment variables
+- Static files served through Django (consider CDN for production)
+- CORS enabled for all origins (restrict in production)
+
+## 📞 Support
+
+For deployment issues or questions:
+1. Check logs first: `/opt/fabsketch/error.log`
+2. Verify health endpoint: `/health/`
+3. Check EC2 instance status in AWS Console
+4. Review ALB target group health
